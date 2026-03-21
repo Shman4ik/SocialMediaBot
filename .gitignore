@@ -52,3 +52,45 @@ CodeCoverage/
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.rsuser
+
+# VS Code
+.vscode/
+
+# JetBrains Rider
+.idea/
+
+# .NET Aspire
+.aspire/
+
+# Sensitive / environment-specific settings
+appsettings.Development.json
+appsettings.Local.json
+secrets.json
+
+# Docker compose local overrides
+docker-compose.override.yml
+
+# Test coverage
+coverage/
+*.trx
+*.coverage
+*.coveragexml
+
+# Publishing
+publish/
+*.pubxml.user
+
+# Windows
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# macOS
+.DS_Store

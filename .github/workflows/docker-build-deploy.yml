@@ -1,0 +1,67 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches: [ "master" ]
+
+jobs:
+  build-and-deploy:
+    environment: hetzner-vpc
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+
+    - name: Set version
+      id: version
+      run: |
+        echo "VERSION=0.1.${{ github.run_number }}" >> $GITHUB_ENV
+        echo "Using version: 0.1.${{ github.run_number }}"
+
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@v2
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        push: true
+        tags: |
+          ghcr.io/shman4ik/socialmediabot:latest
+          ghcr.io/shman4ik/socialmediabot:${{ env.VERSION }}
+
+    - name: Deploy to VPS
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.VPS_HOST }}
+        username: ${{ secrets.VPS_USERNAME }}
+        key: ${{ secrets.VPS_SSH_KEY }}
+        passphrase: ${{ secrets.VPS_SSH_KEY_PASSPHRASE }}
+        script: |
+          docker pull ghcr.io/shman4ik/socialmediabot:${{ env.VERSION }}
+
+          docker stop socialmediabot || true
+          docker rm socialmediabot || true
+
+          docker run -d --name socialmediabot \
+            --restart unless-stopped \
+            -e "Telegram__BotToken=${{ secrets.TELEGRAM__BOTTOKEN }}" \
+            -e "Telegram__AllowedChatIds__0=${{ secrets.TELEGRAM__ALLOWEDCHATIDS__0 }}" \
+            -e "Gemini__ApiKey=${{ secrets.GEMINI__APIKEY }}" \
+            -e "Twitter__ApiKey=${{ secrets.TWITTER__APIKEY }}" \
+            -e "Twitter__ApiKeySecret=${{ secrets.TWITTER__APIKEYSECRET }}" \
+            -e "Twitter__AccessToken=${{ secrets.TWITTER__ACCESSTOKEN }}" \
+            -e "Twitter__AccessTokenSecret=${{ secrets.TWITTER__ACCESSTOKENSECRET }}" \
+            -e "Bluesky__Identifier=${{ secrets.BLUESKY__IDENTIFIER }}" \
+            -e "Bluesky__Password=${{ secrets.BLUESKY__PASSWORD }}" \
+            -e "DOTNET_EnableDiagnostics=false" \
+            ghcr.io/shman4ik/socialmediabot:${{ env.VERSION }}
+
+          echo "Deployed version: ${{ env.VERSION }}"
