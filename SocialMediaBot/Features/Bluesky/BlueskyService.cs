@@ -11,6 +11,7 @@ public class BlueskyService(
     ILogger<BlueskyService> logger) : IBlueskyService
 {
     private string? _accessJwt;
+    private string? _refreshJwt;
     private string? _did;
 
     public async Task PostAsync(string text, byte[]? photoData = null, string? mimeType = null, CancellationToken ct = default)
@@ -29,7 +30,7 @@ public class BlueskyService(
         catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Unauthorized)
         {
             logger.LogWarning("Bluesky session expired, re-authenticating");
-            await CreateSessionAsync(client, opts, ct);
+            await RefreshOrCreateSessionAsync(client, opts, ct);
             await CreatePostAsync(client, text, photoData, mimeType, ct);
         }
     }
@@ -49,9 +50,39 @@ public class BlueskyService(
 
         var session = await response.Content.ReadFromJsonAsync<BlueskySessionResponse>(ct);
         _accessJwt = session?.AccessJwt ?? throw new InvalidOperationException("Missing accessJwt");
+        _refreshJwt = session?.RefreshJwt;
         _did = session?.Did ?? throw new InvalidOperationException("Missing did");
 
         logger.LogInformation("Bluesky session created for {Did}", _did);
+    }
+
+    private async Task RefreshOrCreateSessionAsync(HttpClient client, BlueskyOptions opts, CancellationToken ct)
+    {
+        if (_refreshJwt is not null)
+        {
+            try
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Post, "/xrpc/com.atproto.server.refreshSession");
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _refreshJwt);
+                var response = await client.SendAsync(request, ct);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    var session = await response.Content.ReadFromJsonAsync<BlueskySessionResponse>(ct);
+                    _accessJwt = session?.AccessJwt ?? throw new InvalidOperationException("Missing accessJwt");
+                    _refreshJwt = session?.RefreshJwt;
+                    _did = session?.Did ?? _did;
+                    logger.LogInformation("Bluesky session refreshed for {Did}", _did);
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Bluesky token refresh failed, falling back to full re-authentication");
+            }
+        }
+
+        await CreateSessionAsync(client, opts, ct);
     }
 
     private async Task CreatePostAsync(
@@ -143,6 +174,9 @@ public class BlueskyService(
         if (!response.IsSuccessStatusCode)
         {
             var error = await response.Content.ReadAsStringAsync(ct);
+            // Bluesky returns 400 BadRequest with ExpiredToken when the access token has expired
+            if (error.Contains("ExpiredToken"))
+                throw new HttpRequestException($"Bluesky blob upload failed: {response.StatusCode}: {error}", null, System.Net.HttpStatusCode.Unauthorized);
             throw new HttpRequestException($"Bluesky blob upload failed: {response.StatusCode}: {error}");
         }
 
@@ -155,6 +189,7 @@ public class BlueskyService(
 file class BlueskySessionResponse
 {
     [JsonPropertyName("accessJwt")] public string? AccessJwt { get; set; }
+    [JsonPropertyName("refreshJwt")] public string? RefreshJwt { get; set; }
     [JsonPropertyName("did")] public string? Did { get; set; }
 }
 
