@@ -218,7 +218,7 @@ file class BlueskyEmbedImage
     public BlueskyAspectRatio? AspectRatio { get; set; }
 }
 
-file class BlueskyAspectRatio
+class BlueskyAspectRatio
 {
     [JsonPropertyName("width")] public int Width { get; set; }
     [JsonPropertyName("height")] public int Height { get; set; }
