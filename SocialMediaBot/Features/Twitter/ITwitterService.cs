@@ -1,4 +1,4 @@
-namespace SocialMediaBot.Services;
+namespace SocialMediaBot.Features.Twitter;
 
 public interface ITwitterService
 {

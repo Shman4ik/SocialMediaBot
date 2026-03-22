@@ -2,9 +2,8 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
-using SocialMediaBot.Configuration;
 
-namespace SocialMediaBot.Services;
+namespace SocialMediaBot.Features.Bluesky;
 
 public class BlueskyService(
     IHttpClientFactory httpClientFactory,

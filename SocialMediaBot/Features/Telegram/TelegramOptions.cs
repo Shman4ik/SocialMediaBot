@@ -1,4 +1,4 @@
-namespace SocialMediaBot.Configuration;
+namespace SocialMediaBot.Features.Telegram;
 
 public class TelegramOptions
 {

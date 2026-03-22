@@ -1,23 +1,25 @@
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
-using SocialMediaBot.Configuration;
+using SocialMediaBot.Shared.Storage;
 
-namespace SocialMediaBot.Services;
+namespace SocialMediaBot.Features.Gemini;
 
 public class GeminiService(
     IHttpClientFactory httpClientFactory,
     IOptions<GeminiOptions> options,
+    MinioService minioService,
     ILogger<GeminiService> logger) : IGeminiService
 {
     private const string Separator = "|||";
 
+    private string? _spellcheckPrompt;
+    private string? _variantsPrompt;
+
     public async Task<string> FixSpellingAsync(string rawText, CancellationToken ct = default)
     {
         var opts = options.Value;
-        var prompt = string.IsNullOrWhiteSpace(opts.SpellcheckPrompt)
-            ? "Исправь только орфографию и пунктуацию, не меняй стиль, слова и структуру. Верни только исправленный текст, без пояснений:"
-            : opts.SpellcheckPrompt;
+        var prompt = await GetSpellcheckPromptAsync(opts, ct);
 
         var corrected = await CallGeminiAsync($"{prompt}\n\n{rawText}", opts, ct);
 
@@ -34,9 +36,7 @@ public class GeminiService(
     {
         var opts = options.Value;
 
-        var promptText = string.IsNullOrWhiteSpace(opts.VariantsPrompt)
-            ? BuildDefaultVariantsPrompt(opts.VariantsCount)
-            : opts.VariantsPrompt.Replace("{VariantsCount}", opts.VariantsCount.ToString());
+        var promptText = await GetVariantsPromptAsync(opts, ct);
 
         var fullPrompt = $"{promptText}\n\nТекст: {rawText}";
 
@@ -65,6 +65,64 @@ public class GeminiService(
 
         logger.LogInformation("Gemini returned {Count} variants", variants.Count);
         return variants;
+    }
+
+    private async Task<string> GetSpellcheckPromptAsync(GeminiOptions opts, CancellationToken ct)
+    {
+        if (_spellcheckPrompt is not null)
+            return _spellcheckPrompt;
+
+        if (!string.IsNullOrWhiteSpace(opts.SpellcheckPromptFile))
+        {
+            try
+            {
+                var s3Text = await minioService.GetTextAsync(opts.SpellcheckPromptFile, ct);
+                if (!string.IsNullOrWhiteSpace(s3Text))
+                {
+                    _spellcheckPrompt = s3Text;
+                    return _spellcheckPrompt;
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to load spellcheck prompt from S3 ({File}), falling back", opts.SpellcheckPromptFile);
+            }
+        }
+
+        _spellcheckPrompt = string.IsNullOrWhiteSpace(opts.SpellcheckPrompt)
+            ? "Исправь только орфографию и пунктуацию, не меняй стиль, слова и структуру. Верни только исправленный текст, без пояснений:"
+            : opts.SpellcheckPrompt;
+
+        return _spellcheckPrompt;
+    }
+
+    private async Task<string> GetVariantsPromptAsync(GeminiOptions opts, CancellationToken ct)
+    {
+        if (_variantsPrompt is not null)
+            return _variantsPrompt.Replace("{VariantsCount}", opts.VariantsCount.ToString());
+
+        if (!string.IsNullOrWhiteSpace(opts.VariantsPromptFile))
+        {
+            try
+            {
+                var s3Text = await minioService.GetTextAsync(opts.VariantsPromptFile, ct);
+                if (!string.IsNullOrWhiteSpace(s3Text))
+                {
+                    _variantsPrompt = s3Text;
+                    return _variantsPrompt.Replace("{VariantsCount}", opts.VariantsCount.ToString());
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to load variants prompt from S3 ({File}), falling back", opts.VariantsPromptFile);
+            }
+        }
+
+        _variantsPrompt = string.IsNullOrWhiteSpace(opts.VariantsPrompt)
+            ? BuildDefaultVariantsPrompt(opts.VariantsCount)
+            : opts.VariantsPrompt;
+
+        return _variantsPrompt.Replace("{VariantsCount}", opts.VariantsCount.ToString());
     }
 
     private async Task<string?> CallGeminiAsync(string prompt, GeminiOptions opts, CancellationToken ct)

@@ -1,6 +1,8 @@
 using Microsoft.Extensions.Configuration;
+using SocialMediaBot.Features.Bluesky;
+using SocialMediaBot.Features.Twitter;
 
-namespace SocialMediaBot.Services;
+namespace SocialMediaBot.Features.Posting;
 
 public class MessageProcessingService(
     ITwitterService twitterService,

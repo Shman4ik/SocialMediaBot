@@ -1,4 +1,4 @@
-namespace SocialMediaBot.Configuration;
+namespace SocialMediaBot.Features.Bluesky;
 
 public class BlueskyOptions
 {

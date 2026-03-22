@@ -1,4 +1,4 @@
-namespace SocialMediaBot.Services;
+namespace SocialMediaBot.Features.Gemini;
 
 public interface IGeminiService
 {

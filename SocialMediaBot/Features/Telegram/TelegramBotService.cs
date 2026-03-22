@@ -1,14 +1,15 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
-using SocialMediaBot.Configuration;
+using SocialMediaBot.Features.Gemini;
+using SocialMediaBot.Features.Posting;
 using Telegram.Bot;
 using Telegram.Bot.Polling;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 using Telegram.Bot.Types.ReplyMarkups;
 
-namespace SocialMediaBot.Services;
+namespace SocialMediaBot.Features.Telegram;
 
 public class TelegramBotService(
     IOptions<TelegramOptions> options,

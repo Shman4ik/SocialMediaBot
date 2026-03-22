@@ -1,10 +1,8 @@
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
-using SocialMediaBot.Configuration;
-using SocialMediaBot.Helpers;
 
-namespace SocialMediaBot.Services;
+namespace SocialMediaBot.Features.Twitter;
 
 public class TwitterService(
     IHttpClientFactory httpClientFactory,

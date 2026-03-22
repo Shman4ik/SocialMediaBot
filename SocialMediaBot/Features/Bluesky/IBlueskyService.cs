@@ -1,4 +1,4 @@
-namespace SocialMediaBot.Services;
+namespace SocialMediaBot.Features.Bluesky;
 
 public interface IBlueskyService
 {

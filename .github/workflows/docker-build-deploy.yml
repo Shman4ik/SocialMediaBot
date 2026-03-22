@@ -61,6 +61,9 @@ jobs:
             -e "Twitter__AccessTokenSecret=${{ secrets.TWITTER__ACCESSTOKENSECRET }}" \
             -e "Bluesky__Identifier=${{ secrets.BLUESKY__IDENTIFIER }}" \
             -e "Bluesky__Password=${{ secrets.BLUESKY__PASSWORD }}" \
+            -e "Minio__Endpoint=${{ secrets.MINIO__ENDPOINT }}" \
+            -e "Minio__AccessKey=${{ secrets.MINIO__ACCESSKEY }}" \
+            -e "Minio__SecretKey=${{ secrets.MINIO__SECRETKEY }}" \
             -e "DOTNET_EnableDiagnostics=false" \
             ghcr.io/shman4ik/socialmediabot:${{ env.VERSION }}
 

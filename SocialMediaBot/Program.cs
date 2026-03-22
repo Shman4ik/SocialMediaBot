@@ -1,5 +1,9 @@
-using SocialMediaBot.Configuration;
-using SocialMediaBot.Services;
+using SocialMediaBot.Features.Bluesky;
+using SocialMediaBot.Features.Gemini;
+using SocialMediaBot.Features.Posting;
+using SocialMediaBot.Features.Telegram;
+using SocialMediaBot.Features.Twitter;
+using SocialMediaBot.Shared.Storage;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -10,6 +14,8 @@ builder.Services.Configure<TelegramOptions>(builder.Configuration.GetSection(Tel
 builder.Services.Configure<GeminiOptions>(builder.Configuration.GetSection(GeminiOptions.SectionName));
 builder.Services.Configure<TwitterOptions>(builder.Configuration.GetSection(TwitterOptions.SectionName));
 builder.Services.Configure<BlueskyOptions>(builder.Configuration.GetSection(BlueskyOptions.SectionName));
+builder.Services.Configure<MinioOptions>(builder.Configuration.GetSection(MinioOptions.SectionName));
+builder.Services.AddSingleton<MinioService>();
 
 // HttpClients
 builder.Services.AddHttpClient("Gemini", client =>

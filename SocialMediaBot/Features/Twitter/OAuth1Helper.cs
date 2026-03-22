@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 
-namespace SocialMediaBot.Helpers;
+namespace SocialMediaBot.Features.Twitter;
 
 public static class OAuth1Helper
 {

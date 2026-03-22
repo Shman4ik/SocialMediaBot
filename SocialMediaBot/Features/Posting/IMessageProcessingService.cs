@@ -1,4 +1,4 @@
-namespace SocialMediaBot.Services;
+namespace SocialMediaBot.Features.Posting;
 
 public record PostResult(
     string Text,
