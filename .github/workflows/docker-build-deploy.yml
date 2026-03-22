@@ -57,6 +57,7 @@ jobs:
 
           docker run -d --name socialmediabot \
             --restart unless-stopped \
+            -p 8081:8080 \
             -e "Telegram__BotToken=${{ secrets.TELEGRAM__BOTTOKEN }}" \
             -e "Telegram__AllowedChatIds__0=${{ secrets.TELEGRAM__ALLOWEDCHATIDS__0 }}" \
             -e "Gemini__ApiKey=${{ secrets.GEMINI__APIKEY }}" \
