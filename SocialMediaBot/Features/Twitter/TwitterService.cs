@@ -30,25 +30,25 @@ public class TwitterService(
             opts.ApiKey, opts.ApiKeySecret,
             opts.AccessToken, opts.AccessTokenSecret);
 
-        var tweetBody = mediaId is not null
-            ? (object)new TweetWithMediaRequest { Text = text, Media = new TweetMedia { MediaIds = [mediaId] } }
-            : new TweetRequest { Text = text };
-
         using var request = new HttpRequestMessage(HttpMethod.Post, TweetUrl);
         request.Headers.TryAddWithoutValidation("Authorization", authHeader);
-        request.Content = JsonContent.Create(tweetBody);
+        request.Content = mediaId is not null
+            ? JsonContent.Create(new TweetWithMediaRequest { Text = text, Media = new TweetMedia { MediaIds = [mediaId] } })
+            : JsonContent.Create(new TweetRequest { Text = text });
 
         logger.LogDebug("Posting tweet: {TextLength} chars, hasPhoto={HasPhoto}", text.Length, mediaId is not null);
 
-        var response = await client.SendAsync(request, ct);
+        using var response = await client.SendAsync(request, ct);
+        var responseBody = await response.Content.ReadAsStringAsync(ct);
         if (!response.IsSuccessStatusCode)
         {
-            var errorBody = await response.Content.ReadAsStringAsync(ct);
-            logger.LogError("Twitter API error {StatusCode}: {Error}", response.StatusCode, errorBody);
-            throw new HttpRequestException($"Twitter API returned {response.StatusCode}: {errorBody}");
+            logger.LogError("Twitter API error {StatusCode}: {Error}", response.StatusCode, responseBody);
+            throw new HttpRequestException($"Twitter API returned {response.StatusCode}: {responseBody}");
         }
 
-        logger.LogInformation("Tweet posted successfully");
+        var tweetResult = await System.Text.Json.JsonSerializer.DeserializeAsync<TweetCreatedResponse>(
+            new System.IO.MemoryStream(System.Text.Encoding.UTF8.GetBytes(responseBody)), cancellationToken: ct);
+        logger.LogInformation("Tweet posted successfully, id={TweetId}, url=https://x.com/i/web/status/{TweetId}", tweetResult?.Data?.Id);
     }
 
     private async Task<string> UploadMediaAsync(
@@ -111,4 +111,19 @@ file class MediaUploadResponse
 {
     [JsonPropertyName("media_id_string")]
     public string? MediaIdString { get; set; }
+}
+
+file class TweetCreatedResponse
+{
+    [JsonPropertyName("data")]
+    public TweetCreatedData? Data { get; set; }
+}
+
+file class TweetCreatedData
+{
+    [JsonPropertyName("id")]
+    public string? Id { get; set; }
+
+    [JsonPropertyName("text")]
+    public string? Text { get; set; }
 }

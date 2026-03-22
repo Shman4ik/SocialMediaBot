@@ -62,10 +62,11 @@ public class BlueskyService(
         if (photoData is not null)
         {
             var blob = await UploadBlobAsync(client, photoData, mimeType ?? "image/jpeg", ct);
+            var aspectRatio = ReadImageDimensions(photoData);
             embed = new BlueskyEmbed
             {
                 Type = "app.bsky.embed.images",
-                Images = [new BlueskyEmbedImage { Alt = "", Image = blob }]
+                Images = [new BlueskyEmbedImage { Alt = "", Image = blob, AspectRatio = aspectRatio }]
             };
         }
 
@@ -95,6 +96,39 @@ public class BlueskyService(
         }
 
         logger.LogInformation("Bluesky post created successfully");
+    }
+
+    private static BlueskyAspectRatio? ReadImageDimensions(byte[] data)
+    {
+        // PNG: signature 8 bytes, then IHDR: 4 len + 4 "IHDR" + 4 width + 4 height
+        if (data.Length >= 24 &&
+            data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47)
+        {
+            int width  = (data[16] << 24) | (data[17] << 16) | (data[18] << 8) | data[19];
+            int height = (data[20] << 24) | (data[21] << 16) | (data[22] << 8) | data[23];
+            return new BlueskyAspectRatio { Width = width, Height = height };
+        }
+
+        // JPEG: scan for SOF markers (0xFF 0xC0/C1/C2) which contain height then width
+        if (data.Length >= 4 && data[0] == 0xFF && data[1] == 0xD8)
+        {
+            int i = 2;
+            while (i + 8 < data.Length)
+            {
+                if (data[i] != 0xFF) break;
+                byte marker = data[i + 1];
+                int segLen = (data[i + 2] << 8) | data[i + 3];
+                if (marker is 0xC0 or 0xC1 or 0xC2)
+                {
+                    int height = (data[i + 5] << 8) | data[i + 6];
+                    int width  = (data[i + 7] << 8) | data[i + 8];
+                    return new BlueskyAspectRatio { Width = width, Height = height };
+                }
+                i += 2 + segLen;
+            }
+        }
+
+        return null;
     }
 
     private async Task<BlueskyBlob> UploadBlobAsync(
@@ -144,6 +178,15 @@ file class BlueskyEmbedImage
 {
     [JsonPropertyName("alt")] public required string Alt { get; set; }
     [JsonPropertyName("image")] public required BlueskyBlob Image { get; set; }
+    [JsonPropertyName("aspectRatio")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public BlueskyAspectRatio? AspectRatio { get; set; }
+}
+
+file class BlueskyAspectRatio
+{
+    [JsonPropertyName("width")] public int Width { get; set; }
+    [JsonPropertyName("height")] public int Height { get; set; }
 }
 
 file class BlueskyUploadBlobResponse
