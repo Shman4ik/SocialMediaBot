@@ -145,6 +145,13 @@ public class GeminiService(
         return result?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text;
     }
 
+    public void InvalidatePromptCache()
+    {
+        _spellcheckPrompt = null;
+        _variantsPrompt = null;
+        logger.LogInformation("Gemini prompt cache invalidated; prompts will reload from S3 on next use.");
+    }
+
     private static string BuildDefaultVariantsPrompt(int count) =>
         $"""
         Ты помогаешь готовить твиты на русском языке. Подготовь ровно {count} варианта твита из текста ниже.

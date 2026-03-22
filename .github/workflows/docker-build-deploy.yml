@@ -67,6 +67,8 @@ jobs:
             -e "Minio__Endpoint=${{ secrets.MINIO__ENDPOINT }}" \
             -e "Minio__AccessKey=${{ secrets.MINIO__ACCESSKEY }}" \
             -e "Minio__SecretKey=${{ secrets.MINIO__SECRETKEY }}" \
+            -e "Admin__Username=${{ secrets.ADMIN__USERNAME }}" \
+            -e "Admin__Password=${{ secrets.ADMIN__PASSWORD }}" \
             -e "DOTNET_EnableDiagnostics=false" \
             ghcr.io/shman4ik/socialmediabot:${{ env.VERSION }}
 

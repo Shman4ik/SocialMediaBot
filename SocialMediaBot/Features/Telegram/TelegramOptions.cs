@@ -6,4 +6,5 @@ public class TelegramOptions
 
     public required string BotToken { get; set; }
     public long[] AllowedChatIds { get; set; } = [];
+    public bool Enabled { get; set; } = true;
 }

@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Configuration;
+using SocialMediaBot.Features.Admin;
 using SocialMediaBot.Features.Bluesky;
 using SocialMediaBot.Features.Twitter;
 
@@ -7,12 +7,12 @@ namespace SocialMediaBot.Features.Posting;
 public class MessageProcessingService(
     ITwitterService twitterService,
     IBlueskyService blueskyService,
-    IConfiguration configuration,
+    AppState appState,
     ILogger<MessageProcessingService> logger) : IMessageProcessingService
 {
     public async Task<PostResult> PostAsync(string text, byte[]? photoData = null, string? mimeType = null, CancellationToken ct = default)
     {
-        if (configuration.GetValue<bool>("DryRun"))
+        if (appState.IsDryRun)
         {
             logger.LogInformation("[DRY RUN] Would post: {Text}, hasPhoto={HasPhoto}", text, photoData is not null);
             return new PostResult(text, true, true, null, null);

@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
+using SocialMediaBot.Features.Admin;
 using SocialMediaBot.Features.Gemini;
 using SocialMediaBot.Features.Posting;
 using Telegram.Bot;
@@ -14,7 +14,7 @@ namespace SocialMediaBot.Features.Telegram;
 public class TelegramBotService(
     IOptions<TelegramOptions> options,
     IServiceScopeFactory scopeFactory,
-    IConfiguration configuration,
+    AppState appState,
     ILogger<TelegramBotService> logger) : BackgroundService
 {
     private readonly HashSet<long> _allowedChatIds = new(options.Value.AllowedChatIds);
@@ -33,22 +33,40 @@ public class TelegramBotService(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var client = new TelegramBotClient(options.Value.BotToken);
-
         var receiverOptions = new ReceiverOptions
         {
             AllowedUpdates = [UpdateType.Message, UpdateType.CallbackQuery]
         };
 
-        logger.LogInformation("Telegram bot started. DryRun={DryRun}. Allowed: {ChatIds}",
-            configuration.GetValue<bool>("DryRun"),
-            _allowedChatIds.Count > 0 ? string.Join(", ", _allowedChatIds) : "ALL");
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            if (!appState.IsBotRunning)
+            {
+                try { await Task.Delay(500, stoppingToken); }
+                catch (OperationCanceledException) { return; }
+                continue;
+            }
 
-        await client.ReceiveAsync(
-            updateHandler: HandleUpdateAsync,
-            errorHandler: HandleErrorAsync,
-            receiverOptions: receiverOptions,
-            cancellationToken: stoppingToken);
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, appState.BotStopToken);
+            var client = new TelegramBotClient(options.Value.BotToken);
+
+            logger.LogInformation("Telegram bot starting. DryRun={DryRun}. Allowed: {ChatIds}",
+                appState.IsDryRun,
+                _allowedChatIds.Count > 0 ? string.Join(", ", _allowedChatIds) : "ALL");
+
+            try
+            {
+                await client.ReceiveAsync(
+                    updateHandler: HandleUpdateAsync,
+                    errorHandler: HandleErrorAsync,
+                    receiverOptions: receiverOptions,
+                    cancellationToken: linkedCts.Token);
+            }
+            catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
+            {
+                logger.LogInformation("Telegram bot stopped via admin panel.");
+            }
+        }
     }
 
     private async Task HandleUpdateAsync(ITelegramBotClient client, Update update, CancellationToken ct)
@@ -358,7 +376,7 @@ public class TelegramBotService(
 
     private string FormatPostResult(PostResult result)
     {
-        if (configuration.GetValue<bool>("DryRun"))
+        if (appState.IsDryRun)
             return "🧪 <b>Dry Run</b> — в соцсети не отправлено";
 
         return string.Join("\n",
