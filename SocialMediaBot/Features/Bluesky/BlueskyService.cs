@@ -122,6 +122,9 @@ public class BlueskyService(
         if (!response.IsSuccessStatusCode)
         {
             var error = await response.Content.ReadAsStringAsync(ct);
+            // Bluesky returns 400 BadRequest with ExpiredToken when the access token has expired
+            if (error.Contains("ExpiredToken"))
+                throw new HttpRequestException($"Bluesky post failed: {response.StatusCode}: {error}", null, System.Net.HttpStatusCode.Unauthorized);
             logger.LogError("Bluesky post failed {StatusCode}: {Error}", response.StatusCode, error);
             throw new HttpRequestException($"Bluesky post failed: {response.StatusCode}: {error}");
         }
