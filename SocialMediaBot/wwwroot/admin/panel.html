@@ -113,6 +113,27 @@
 
     #status-area { display: contents; }
     .loading-placeholder { color: #9ca3af; font-size: 0.9rem; padding: 12px 0; }
+
+    .section-title { font-size: 0.85rem; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: .05em; margin: 24px 0 10px; }
+
+    .card-col { flex-direction: column; align-items: stretch; gap: 10px; }
+
+    .card-row { display: flex; justify-content: space-between; align-items: center; }
+
+    textarea.prompt-input {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      font-family: "Menlo", "Consolas", monospace;
+      font-size: 0.8rem;
+      line-height: 1.5;
+      resize: vertical;
+      color: #111;
+      background: #fafafa;
+      transition: border-color .15s;
+    }
+    textarea.prompt-input:focus { outline: none; border-color: #2563eb; background: #fff; }
   </style>
 </head>
 <body>
@@ -124,6 +145,29 @@
 
     <div id="status-area">
       <p class="loading-placeholder"><span class="spinner"></span>Загрузка...</p>
+    </div>
+
+    <p class="section-title">Системные промпты</p>
+
+    <div class="card card-col">
+      <div class="card-row">
+        <span class="card-label">Орфография</span>
+        <span id="spellcheck-file" class="note"></span>
+      </div>
+      <textarea id="spellcheck-prompt" class="prompt-input" rows="5" placeholder="Загрузка..."></textarea>
+    </div>
+
+    <div class="card card-col">
+      <div class="card-row">
+        <span class="card-label">Варианты твитов</span>
+        <span id="variants-file" class="note"></span>
+      </div>
+      <textarea id="variants-prompt" class="prompt-input" rows="8" placeholder="Загрузка..."></textarea>
+    </div>
+
+    <div style="display:flex; justify-content:flex-end; gap:8px; margin-bottom:24px;">
+      <button class="btn" onclick="loadPrompts()">Сбросить изменения</button>
+      <button class="btn btn-primary" id="save-prompts-btn" onclick="savePrompts()">Сохранить в S3</button>
     </div>
   </div>
 
@@ -212,7 +256,53 @@
       setTimeout(() => t.classList.remove('show'), 2500);
     }
 
-    document.addEventListener('DOMContentLoaded', loadStatus);
+    async function loadPrompts() {
+      const spellcheckEl = document.getElementById('spellcheck-prompt');
+      const variantsEl = document.getElementById('variants-prompt');
+      spellcheckEl.placeholder = 'Загрузка...';
+      variantsEl.placeholder = 'Загрузка...';
+
+      try {
+        const res = await fetch('/admin/api/prompts');
+        if (res.status === 401) { location.href = '/admin/login'; return; }
+        if (!res.ok) throw new Error('Ошибка сервера');
+        const data = await res.json();
+
+        spellcheckEl.value = data.spellcheck ?? '';
+        variantsEl.value = data.variants ?? '';
+        document.getElementById('spellcheck-file').textContent = data.spellcheckFile || '';
+        document.getElementById('variants-file').textContent = data.variantsFile || '';
+      } catch (e) {
+        showToast('Ошибка загрузки промптов: ' + e.message);
+      }
+    }
+
+    async function savePrompts() {
+      const btn = document.getElementById('save-prompts-btn');
+      btn.disabled = true;
+
+      try {
+        const body = {
+          spellcheck: document.getElementById('spellcheck-prompt').value,
+          variants: document.getElementById('variants-prompt').value
+        };
+
+        const res = await fetch('/admin/api/prompts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        if (res.status === 401) { location.href = '/admin/login'; return; }
+        if (!res.ok) throw new Error('Ошибка сервера');
+        showToast('Промпты сохранены в S3 ✓');
+      } catch (e) {
+        showToast('Ошибка: ' + e.message);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => { loadStatus(); loadPrompts(); });
   </script>
 </body>
 </html>

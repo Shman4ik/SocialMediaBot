@@ -1,3 +1,4 @@
+using System.Text;
 using Microsoft.Extensions.Options;
 using Minio;
 using Minio.DataModel.Args;
@@ -46,5 +47,21 @@ public class MinioService(IOptions<MinioOptions> options, ILogger<MinioService> 
 
         logger.LogInformation("Loaded prompt from S3: {ObjectName}", objectName);
         return result;
+    }
+
+    public async Task PutTextAsync(string objectName, string content, CancellationToken ct = default)
+    {
+        var bytes = Encoding.UTF8.GetBytes(content);
+        using var stream = new MemoryStream(bytes);
+
+        var args = new PutObjectArgs()
+            .WithBucket(_opts.BucketName)
+            .WithObject(objectName)
+            .WithStreamData(stream)
+            .WithObjectSize(bytes.Length)
+            .WithContentType("text/plain; charset=utf-8");
+
+        await _client.PutObjectAsync(args, ct);
+        logger.LogInformation("Saved prompt to S3: {ObjectName}", objectName);
     }
 }

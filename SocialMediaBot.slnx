@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/Solution Items/">
     <File Path=".github/workflows/docker-build-deploy.yml" />
+    <File Path="CLAUDE.md" />
     <File Path="Dockerfile" />
   </Folder>
   <Project Path="SocialMediaBot.AppHost/SocialMediaBot.AppHost.csproj" />

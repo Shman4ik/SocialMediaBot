@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.Extensions.Options;
 using SocialMediaBot.Features.Gemini;
+using SocialMediaBot.Shared.Storage;
 using System.Security.Claims;
 
 namespace SocialMediaBot.Features.Admin;
@@ -71,6 +72,55 @@ public static class AdminEndpoints
             return Results.Ok(new { success = true });
         });
 
+        secured.MapGet("/api/prompts", async (
+            MinioService minio,
+            IOptions<GeminiOptions> geminiOpts,
+            CancellationToken ct) =>
+        {
+            var opts = geminiOpts.Value;
+            string? spellcheck = null;
+            string? variants = null;
+
+            if (!string.IsNullOrWhiteSpace(opts.SpellcheckPromptFile))
+            {
+                try { spellcheck = await minio.GetTextAsync(opts.SpellcheckPromptFile, ct); }
+                catch { /* файл ещё не создан */ }
+            }
+
+            if (!string.IsNullOrWhiteSpace(opts.VariantsPromptFile))
+            {
+                try { variants = await minio.GetTextAsync(opts.VariantsPromptFile, ct); }
+                catch { /* файл ещё не создан */ }
+            }
+
+            return Results.Ok(new
+            {
+                spellcheck = spellcheck ?? opts.SpellcheckPrompt,
+                variants = variants ?? opts.VariantsPrompt,
+                spellcheckFile = opts.SpellcheckPromptFile,
+                variantsFile = opts.VariantsPromptFile
+            });
+        });
+
+        secured.MapPost("/api/prompts", async (
+            PromptsUpdateRequest body,
+            MinioService minio,
+            IGeminiService gemini,
+            IOptions<GeminiOptions> geminiOpts,
+            CancellationToken ct) =>
+        {
+            var opts = geminiOpts.Value;
+
+            if (body.Spellcheck is not null && !string.IsNullOrWhiteSpace(opts.SpellcheckPromptFile))
+                await minio.PutTextAsync(opts.SpellcheckPromptFile, body.Spellcheck, ct);
+
+            if (body.Variants is not null && !string.IsNullOrWhiteSpace(opts.VariantsPromptFile))
+                await minio.PutTextAsync(opts.VariantsPromptFile, body.Variants, ct);
+
+            gemini.InvalidatePromptCache();
+            return Results.Ok(new { success = true });
+        });
+
         secured.MapPost("/logout", async (HttpContext ctx) =>
         {
             await ctx.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
@@ -90,3 +140,5 @@ public static class AdminEndpoints
         return Results.Content(html, "text/html; charset=utf-8");
     }
 }
+
+public record PromptsUpdateRequest(string? Spellcheck, string? Variants);
