@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A Telegram bot that cross-posts messages to X (Twitter) and Bluesky with AI-powered text processing via Google Gemini. Built with ASP.NET Core (.NET 10) and .NET Aspire for local orchestration.
+A Telegram bot that cross-posts messages to X (Twitter) and Bluesky with AI-powered text processing via Google Gemini. Built with ASP.NET Core (.NET 10) and .NET Aspire for local orchestration. Bot UI is in Russian.
 
 ## Commands
 
@@ -53,9 +53,13 @@ There are no automated tests in this project.
 | `Twitter/` | OAuth 1.0a auth, Tweet API v2, media upload |
 | `Bluesky/` | AT Protocol auth with proactive JWT refresh, image upload |
 | `Posting/` | Orchestrates parallel posting to both platforms |
-| `Admin/` | Web admin panel: dry-run toggle, bot start/stop, auth |
+| `Admin/` | Web admin panel: dry-run toggle, bot start/stop, prompt editing, auth |
 
-`Shared/Storage/MinioService` handles S3-compatible object storage for media files.
+`Shared/Storage/MinioService` handles S3-compatible object storage for media files and prompt text files.
+
+### Service Lifetimes
+
+Most services (`GeminiService`, `TwitterService`, `BlueskyService`, `MinioService`, `AppState`) are **singletons** with in-memory state. `MessageProcessingService` is **scoped** (created per request via `IServiceScopeFactory`). `TelegramBotService` creates scopes manually to resolve scoped services from its `BackgroundService` context.
 
 ### Message Flow
 
@@ -71,11 +75,19 @@ Telegram message → TelegramBotService (state machine)
 
 ### State Machine (TelegramBotService)
 
-The bot uses in-memory state flags to track conversation context:
+Per-chat state is tracked in `ConcurrentDictionary` fields keyed by chat ID:
 - `_awaitingMode` — message received, waiting for user to pick a mode (direct post, spellcheck, variants)
 - `_awaitingSpellcheck` — Gemini result shown, waiting for approval or edit
-- `_awaitingVariant` — 3 style variants shown, waiting for user selection
+- `_awaitingVariant` — style variants shown, waiting for user selection
 - `_awaitingCustom` — user is typing custom replacement text
+
+### Gemini Prompt Loading
+
+Prompts are loaded from S3 (MinIO) via `SpellcheckPromptFile`/`VariantsPromptFile` paths, with in-memory caching. The cache is invalidated via `InvalidatePromptCache()` (called from the admin API). If S3 loading fails, falls back to inline defaults. The variants prompt supports a `{VariantsCount}` placeholder. Gemini API response models use `file`-scoped types (C# 11 `file class`) inside `GeminiService.cs`.
+
+### Admin Panel
+
+Static HTML served from `wwwroot/admin/` (`login.html`, `panel.html`). Cookie-based auth with 8-hour sliding expiration. API endpoints under `/admin/api/` for status, prompt CRUD, and bot/dry-run toggling.
 
 ### Bluesky Token Refresh
 
@@ -85,16 +97,12 @@ The bot uses in-memory state flags to track conversation context:
 
 Key settings in `appsettings.json`:
 - `DryRun` — when `true`, skips actual posting (useful for testing)
+- `Telegram.Enabled` — when `false`, bot starts in stopped state (controllable via admin panel)
+- `Gemini.Model` — Gemini model ID (default in code: `gemini-2.5-flash`)
 - `Gemini.VariantsCount` — number of style variants to generate (default: 3)
-- `Gemini.SpellcheckPromptFile` / `VariantsPromptFile` — paths to prompt text files in `prompts/`
+- `Gemini.SpellcheckPromptFile` / `VariantsPromptFile` — S3 object keys for prompt text files
 - `Telegram.AllowedChatIds` — whitelist of Telegram chat IDs
 
 ### Deployment
 
-CI/CD via `.github/workflows/docker-build-deploy.yml`:
-- Triggers on push to `main`
-- Builds multi-stage Docker image, tags as `0.1.{run_number}`
-- Pushes to `ghcr.io/shman4ik/socialmediabot`
-- Deploys to VPS via SSH
-
-The Dockerfile uses `mcr.microsoft.com/dotnet/aspnet:10.0` as the runtime base, publishing the `SocialMediaBot` project in Release configuration. The admin panel is exposed on port 8081 (mapped from internal 8080).
+CI/CD via `.github/workflows/docker-build-deploy.yml`: triggers on push to `main`, builds Docker image tagged `0.1.{run_number}`, pushes to `ghcr.io/shman4ik/socialmediabot`, deploys to VPS via SSH. Admin panel exposed on port 8081 (mapped from internal 8080).
