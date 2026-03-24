@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
 using SocialMediaBot.Shared.Storage;
@@ -11,7 +12,7 @@ public class GeminiService(
     MinioService minioService,
     ILogger<GeminiService> logger) : IGeminiService
 {
-    private const string Separator = "|||";
+    private const string FallbackSeparator = "---VARIANT---";
 
     private string? _spellcheckPrompt;
     private string? _variantsPrompt;
@@ -50,12 +51,7 @@ public class GeminiService(
             return [rawText];
         }
 
-        var variants = rawResponse
-            .Split(Separator, StringSplitOptions.RemoveEmptyEntries)
-            .Select(v => v.Trim())
-            .Where(v => !string.IsNullOrWhiteSpace(v))
-            .Take(opts.VariantsCount)
-            .ToList();
+        var variants = ParseVariants(rawResponse, opts.VariantsCount);
 
         if (variants.Count == 0)
         {
@@ -152,6 +148,50 @@ public class GeminiService(
         logger.LogInformation("Gemini prompt cache invalidated; prompts will reload from S3 on next use.");
     }
 
+    private List<string> ParseVariants(string rawResponse, int count)
+    {
+        // Strip markdown code fences (```json ... ``` or ``` ... ```)
+        var trimmed = rawResponse.Trim();
+        if (trimmed.StartsWith("```"))
+        {
+            var start = trimmed.IndexOf('\n') + 1;
+            var end = trimmed.LastIndexOf("```");
+            if (end > start)
+                trimmed = trimmed[start..end].Trim();
+        }
+
+        // Try JSON array first — most reliable format
+        if (trimmed.StartsWith("["))
+        {
+            try
+            {
+                var parsed = JsonSerializer.Deserialize<List<string>>(trimmed);
+                if (parsed is { Count: > 0 })
+                {
+                    logger.LogDebug("Parsed variants via JSON");
+                    return parsed.Where(v => !string.IsNullOrWhiteSpace(v)).Take(count).ToList();
+                }
+            }
+            catch (JsonException ex)
+            {
+                logger.LogWarning(ex, "JSON parse failed, falling back to separator split");
+            }
+        }
+
+        // Fallback: separator split
+        var variants = rawResponse
+            .Split(FallbackSeparator, StringSplitOptions.RemoveEmptyEntries)
+            .Select(v => v.Trim())
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .Take(count)
+            .ToList();
+
+        if (variants.Count > 1)
+            logger.LogDebug("Parsed variants via separator split");
+
+        return variants;
+    }
+
     private static string BuildDefaultVariantsPrompt(int count) =>
         $"""
         Ты помогаешь готовить твиты на русском языке. Подготовь ровно {count} варианта твита из текста ниже.
@@ -160,9 +200,10 @@ public class GeminiService(
         - Максимум 280 символов
         - Добавь 1-2 уместных эмодзи
         - Не добавляй хештеги, не меняй стиль на официальный
+        - Каждый вариант должен отличаться зачином или интонацией
 
-        Верни ровно {count} варианта, разделённых символами |||
-        Без нумерации, без пояснений, только тексты через |||
+        Верни строго JSON-массив строк без каких-либо пояснений, например:
+        ["вариант1", "вариант2", "вариант3"]
         """;
 }
 
