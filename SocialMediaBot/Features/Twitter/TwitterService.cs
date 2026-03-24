@@ -48,7 +48,9 @@ public class TwitterService(
 
         var tweetResult = await System.Text.Json.JsonSerializer.DeserializeAsync<TweetCreatedResponse>(
             new System.IO.MemoryStream(System.Text.Encoding.UTF8.GetBytes(responseBody)), cancellationToken: ct);
-        logger.LogInformation("Tweet posted successfully, id={TweetId}, url=https://x.com/i/web/status/{TweetId}", tweetResult?.Data?.Id);
+        logger.LogInformation("Tweet posted successfully, id={TweetId}, url={TweetUrl}",
+            tweetResult?.Data?.Id,
+            $"https://x.com/i/web/status/{tweetResult?.Data?.Id}");
     }
 
     private async Task<string> UploadMediaAsync(

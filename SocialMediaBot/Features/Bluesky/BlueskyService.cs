@@ -39,8 +39,9 @@ public class BlueskyService(
 
         if (IsAccessTokenExpired)
         {
-            logger.LogInformation("Bluesky access token expired, refreshing session");
+            logger.LogWarning("Bluesky session expired, re-authenticating");
             await RefreshOrCreateSessionAsync(client, opts, ct);
+            await CreatePostAsync(client, text, photoData, mimeType, ct);
         }
     }
 
@@ -115,6 +116,35 @@ public class BlueskyService(
         }
         catch { }
         return DateTimeOffset.MinValue;
+    }
+
+    private async Task RefreshOrCreateSessionAsync(HttpClient client, BlueskyOptions opts, CancellationToken ct)
+    {
+        if (_refreshJwt is not null)
+        {
+            try
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Post, "/xrpc/com.atproto.server.refreshSession");
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _refreshJwt);
+                var response = await client.SendAsync(request, ct);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    var session = await response.Content.ReadFromJsonAsync<BlueskySessionResponse>(ct);
+                    _accessJwt = session?.AccessJwt ?? throw new InvalidOperationException("Missing accessJwt");
+                    _refreshJwt = session?.RefreshJwt;
+                    _did = session?.Did ?? _did;
+                    logger.LogInformation("Bluesky session refreshed for {Did}", _did);
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Bluesky token refresh failed, falling back to full re-authentication");
+            }
+        }
+
+        await CreateSessionAsync(client, opts, ct);
     }
 
     private async Task CreatePostAsync(
@@ -206,6 +236,9 @@ public class BlueskyService(
         if (!response.IsSuccessStatusCode)
         {
             var error = await response.Content.ReadAsStringAsync(ct);
+            // Bluesky returns 400 BadRequest with ExpiredToken when the access token has expired
+            if (error.Contains("ExpiredToken"))
+                throw new HttpRequestException($"Bluesky blob upload failed: {response.StatusCode}: {error}", null, System.Net.HttpStatusCode.Unauthorized);
             throw new HttpRequestException($"Bluesky blob upload failed: {response.StatusCode}: {error}");
         }
 
@@ -247,7 +280,7 @@ file class BlueskyEmbedImage
     public BlueskyAspectRatio? AspectRatio { get; set; }
 }
 
-file class BlueskyAspectRatio
+class BlueskyAspectRatio
 {
     [JsonPropertyName("width")] public int Width { get; set; }
     [JsonPropertyName("height")] public int Height { get; set; }
