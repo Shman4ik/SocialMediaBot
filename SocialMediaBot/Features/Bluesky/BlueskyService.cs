@@ -1,5 +1,7 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
 
@@ -11,7 +13,11 @@ public class BlueskyService(
     ILogger<BlueskyService> logger) : IBlueskyService
 {
     private string? _accessJwt;
+    private string? _refreshJwt;
     private string? _did;
+    private DateTimeOffset _accessTokenExpiresAt = DateTimeOffset.MinValue;
+
+    private bool IsAccessTokenExpired => DateTimeOffset.UtcNow >= _accessTokenExpiresAt - TimeSpan.FromSeconds(30);
 
     public async Task PostAsync(string text, byte[]? photoData = null, string? mimeType = null, CancellationToken ct = default)
     {
@@ -19,18 +25,22 @@ public class BlueskyService(
         var client = httpClientFactory.CreateClient("Bluesky");
         client.BaseAddress = new Uri(opts.ServiceUrl);
 
-        if (_accessJwt is null || _did is null)
-            await CreateSessionAsync(client, opts, ct);
+        await EnsureValidSessionAsync(client, opts, ct);
+        await CreatePostAsync(client, text, photoData, mimeType, ct);
+    }
 
-        try
+    private async Task EnsureValidSessionAsync(HttpClient client, BlueskyOptions opts, CancellationToken ct)
+    {
+        if (_accessJwt is null || _did is null)
         {
-            await CreatePostAsync(client, text, photoData, mimeType, ct);
-        }
-        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Unauthorized)
-        {
-            logger.LogWarning("Bluesky session expired, re-authenticating");
             await CreateSessionAsync(client, opts, ct);
-            await CreatePostAsync(client, text, photoData, mimeType, ct);
+            return;
+        }
+
+        if (IsAccessTokenExpired)
+        {
+            logger.LogInformation("Bluesky access token expired, refreshing session");
+            await RefreshOrCreateSessionAsync(client, opts, ct);
         }
     }
 
@@ -48,10 +58,63 @@ public class BlueskyService(
         }
 
         var session = await response.Content.ReadFromJsonAsync<BlueskySessionResponse>(ct);
-        _accessJwt = session?.AccessJwt ?? throw new InvalidOperationException("Missing accessJwt");
-        _did = session?.Did ?? throw new InvalidOperationException("Missing did");
+        StoreSession(session);
 
         logger.LogInformation("Bluesky session created for {Did}", _did);
+    }
+
+    private async Task RefreshOrCreateSessionAsync(HttpClient client, BlueskyOptions opts, CancellationToken ct)
+    {
+        if (_refreshJwt is not null)
+        {
+            try
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Post, "/xrpc/com.atproto.server.refreshSession");
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _refreshJwt);
+                var response = await client.SendAsync(request, ct);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    var session = await response.Content.ReadFromJsonAsync<BlueskySessionResponse>(ct);
+                    StoreSession(session);
+                    logger.LogInformation("Bluesky session refreshed for {Did}", _did);
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Bluesky token refresh failed, falling back to full re-authentication");
+            }
+        }
+
+        await CreateSessionAsync(client, opts, ct);
+    }
+
+    private void StoreSession(BlueskySessionResponse? session)
+    {
+        _accessJwt = session?.AccessJwt ?? throw new InvalidOperationException("Missing accessJwt");
+        _refreshJwt = session?.RefreshJwt;
+        _did = session?.Did ?? throw new InvalidOperationException("Missing did");
+        _accessTokenExpiresAt = ParseJwtExpiry(_accessJwt);
+    }
+
+    private static DateTimeOffset ParseJwtExpiry(string jwt)
+    {
+        try
+        {
+            var parts = jwt.Split('.');
+            if (parts.Length != 3)
+                return DateTimeOffset.MinValue;
+
+            var payload = parts[1];
+            payload = payload.PadRight(payload.Length + (4 - payload.Length % 4) % 4, '=');
+            var json = Encoding.UTF8.GetString(Convert.FromBase64String(payload));
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("exp", out var exp) && exp.TryGetInt64(out var expValue))
+                return DateTimeOffset.FromUnixTimeSeconds(expValue);
+        }
+        catch { }
+        return DateTimeOffset.MinValue;
     }
 
     private async Task CreatePostAsync(
@@ -155,6 +218,7 @@ public class BlueskyService(
 file class BlueskySessionResponse
 {
     [JsonPropertyName("accessJwt")] public string? AccessJwt { get; set; }
+    [JsonPropertyName("refreshJwt")] public string? RefreshJwt { get; set; }
     [JsonPropertyName("did")] public string? Did { get; set; }
 }
 
