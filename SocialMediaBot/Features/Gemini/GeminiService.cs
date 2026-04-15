@@ -30,7 +30,32 @@ public class GeminiService(
             return rawText;
         }
 
-        return corrected.Trim();
+        return RemoveCorrectedTextLabel(corrected);
+    }
+
+    private static string RemoveCorrectedTextLabel(string text)
+    {
+        const string label = "Исправленный текст";
+        var idx = text.IndexOf(label, StringComparison.OrdinalIgnoreCase);
+        if (idx < 0)
+            return text.Trim();
+
+        var after = idx + label.Length;
+
+        // Skip optional colon and inline whitespace after the label
+        while (after < text.Length && text[after] is ':' or ' ' or '\t')
+            after++;
+
+        // Skip one newline (handles both \n and \r\n)
+        if (after < text.Length && text[after] == '\r') after++;
+        if (after < text.Length && text[after] == '\n') after++;
+
+        var result = text[..idx] + text[after..];
+
+        // Collapse three or more consecutive newlines into two (one blank line)
+        result = System.Text.RegularExpressions.Regex.Replace(result, @"\n{3,}", "\n\n");
+
+        return result.Trim();
     }
 
     public async Task<List<string>> GenerateVariantsAsync(string rawText, CancellationToken ct = default)
