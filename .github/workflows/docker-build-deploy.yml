@@ -4,9 +4,12 @@ on:
   push:
     branches: [ "main" ]
 
+concurrency:
+  group: build-and-deploy
+  cancel-in-progress: false
+
 jobs:
   build-and-deploy:
-    environment: hetzner-vpc
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -40,39 +43,21 @@ jobs:
           ghcr.io/shman4ik/socialmediabot:latest
           ghcr.io/shman4ik/socialmediabot:${{ env.VERSION }}
 
-    - name: Deploy to VPS
-      uses: appleboy/ssh-action@master
+    - name: Check out dmnet-gitops
+      uses: actions/checkout@v7
       with:
-        host: ${{ secrets.VPS_HOST }}
-        username: ${{ secrets.VPS_USERNAME }}
-        key: ${{ secrets.VPS_SSH_KEY }}
-        passphrase: ${{ secrets.VPS_SSH_KEY_PASSPHRASE }}
-        script: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+        repository: Shman4ik/dmnet-gitops
+        ssh-key: ${{ secrets.GITOPS_DEPLOY_KEY }}
+        path: gitops
 
-          docker pull ghcr.io/shman4ik/socialmediabot:${{ env.VERSION }}
-
-          docker stop socialmediabot || true
-          docker rm socialmediabot || true
-
-          docker run -d --name socialmediabot \
-            --restart unless-stopped \
-            -p 8081:8080 \
-            -e "Telegram__BotToken=${{ secrets.TELEGRAM__BOTTOKEN }}" \
-            -e "Telegram__AllowedChatIds__0=${{ secrets.TELEGRAM__ALLOWEDCHATIDS__0 }}" \
-            -e "Gemini__ApiKey=${{ secrets.GEMINI__APIKEY }}" \
-            -e "Twitter__ApiKey=${{ secrets.TWITTER__APIKEY }}" \
-            -e "Twitter__ApiKeySecret=${{ secrets.TWITTER__APIKEYSECRET }}" \
-            -e "Twitter__AccessToken=${{ secrets.TWITTER__ACCESSTOKEN }}" \
-            -e "Twitter__AccessTokenSecret=${{ secrets.TWITTER__ACCESSTOKENSECRET }}" \
-            -e "Bluesky__Identifier=${{ secrets.BLUESKY__IDENTIFIER }}" \
-            -e "Bluesky__Password=${{ secrets.BLUESKY__PASSWORD }}" \
-            -e "Minio__Endpoint=${{ secrets.MINIO__ENDPOINT }}" \
-            -e "Minio__AccessKey=${{ secrets.MINIO__ACCESSKEY }}" \
-            -e "Minio__SecretKey=${{ secrets.MINIO__SECRETKEY }}" \
-            -e "Admin__Username=${{ secrets.ADMIN__USERNAME }}" \
-            -e "Admin__Password=${{ secrets.ADMIN__PASSWORD }}" \
-            -e "DOTNET_EnableDiagnostics=false" \
-            ghcr.io/shman4ik/socialmediabot:${{ env.VERSION }}
-
-          echo "Deployed version: ${{ env.VERSION }}"
+    # Deploy = commit the new tag to dmnet-gitops; Argo CD in the cluster applies it within ~90 s.
+    # Nothing connects to the VPS.
+    - name: Point dmnet-gitops at the new image
+      working-directory: gitops/workloads/socialmediabot
+      run: |
+        yq -i '(.images[] | select(.name == "ghcr.io/shman4ik/socialmediabot")).newTag = strenv(VERSION)' kustomization.yaml
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git commit -am "socialmediabot ${VERSION}" -m "Built from ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
+        for attempt in 1 2 3; do git push && exit 0; git pull --rebase; done
+        exit 1
